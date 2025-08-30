@@ -83,11 +83,19 @@
 
     /* Responsive tweaks */
     @media (max-width:900px){
-      .search{width:100%}
-      .toolbar{flex-direction:column; gap:12px}
-      .grid{grid-template-columns: 1fr}
-      .top-controls{display:none}
-    }
+  .search{width:100%}
+  .toolbar{flex-direction:column; gap:12px}
+  .grid{grid-template-columns: 1fr}
+  .top-controls{
+    position: static; /* remove absolute */
+    display: flex;    /* show buttons */
+    flex-direction: column;
+    gap:8px;
+    margin-top:12px;  /* space below heading */
+    justify-content: flex-start;
+  }
+}
+
   </style>
   <style>
   /* Add Medicine categories dropdown text green */
@@ -405,3 +413,4 @@
   </script>
 </body>
 </html>
+
