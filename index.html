@@ -86,16 +86,7 @@
       .search{width:100%}
       .toolbar{flex-direction:column; gap:12px}
       .grid{grid-template-columns: 1fr}
-
-      /* Mobile buttons visible & stacked */
-      .top-controls{
-        display:flex !important;
-        flex-direction:column;
-        gap:8px;
-        position:relative;
-        top:0;
-        right:0;
-      }
+      .top-controls{display:none}
     }
   </style>
   <style>
@@ -233,8 +224,184 @@
   </dialog>
 
   <script>
-  // Same JS code as before (no changes needed)
-  // ... JS code copied from your original file ...
+  // Data layer with trash
+  const STORE_KEY = 'medkb.v2';
+  const defaultData = () => ({
+    categories: [
+      {id:'all', name:'All', locked:true},
+      {id: id(), name:'Pain Relief'},
+      {id: id(), name:'Antibiotics'},
+      {id: id(), name:'Gastrointestinal'},
+      {id: id(), name:'Respiratory'}
+    ],
+    medicines: [
+      {id: id(), name:'Paracetamol', category:'', content:'Acetaminophen 500 mg', dose:'500 mg, 1 tab every 6–8h (max 3–4 g/day)', use:'Fever, mild–moderate pain', notes:'Avoid >3 g/day in adults. Caution: liver disease.'},
+      {id: id(), name:'Ibuprofen', category:'', content:'Ibuprofen 400 mg', dose:'200–400 mg every 8h with food', use:'Pain, inflammation', notes:'Avoid in late pregnancy; caution in GERD/ulcer, renal disease.'},
+      {id: id(), name:'Amoxicillin', category:'', content:'Amoxicillin 500 mg', dose:'500 mg every 8h', use:'ENT, respiratory, UTI (susceptible)', notes:'Check penicillin allergy.'}
+    ],
+    trash: []
+  });
+
+  function load(){ try{ return JSON.parse(localStorage.getItem(STORE_KEY)) || defaultData(); } catch(e){ return defaultData(); } }
+  function save(d){ localStorage.setItem(STORE_KEY, JSON.stringify(d)); }
+  function id(){ return Math.random().toString(36).slice(2,9); }
+
+  let state = load();
+  let filter = { q:'', sort:'name-asc' };
+
+  // Elements
+  const cardsEl = document.getElementById('cards');
+  const emptyEl = document.getElementById('empty');
+  const medDialog = document.getElementById('medDialog');
+  const catDialog = document.getElementById('catDialog');
+  const restoreDialog = document.getElementById('restoreDialog');
+
+  // Render
+  function render(){
+    let list = state.medicines.filter(m=>{
+      const q = filter.q.trim().toLowerCase();
+      return !q || `${m.name} ${m.content} ${m.use} ${m.notes||''}`.toLowerCase().includes(q);
+    });
+    if(filter.sort==='name-asc') list.sort((a,b)=>a.name.localeCompare(b.name));
+    if(filter.sort==='name-desc') list.sort((a,b)=>b.name.localeCompare(a.name));
+    if(filter.sort==='cat-asc') list.sort((a,b)=> (a.category||'').localeCompare(b.category||'') || a.name.localeCompare(b.name));
+
+    cardsEl.innerHTML = '';
+    list.forEach(m=> cardsEl.appendChild(card(m)));
+    emptyEl.style.display = list.length? 'none' : 'block';
+  }
+
+  function card(m){
+    const wrap = document.createElement('article'); wrap.className='card';
+    const catName = (state.categories.find(c=>c.id===m.category)||{}).name || 'Uncategorized';
+    wrap.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center">
+        <div>
+          <h4>${escapeHtml(m.name)}</h4>
+          <div class="muted">${escapeHtml(catName)}</div>
+        </div>
+        <div style="display:flex; gap:8px">
+          <button class="small btn ghost" data-act="edit">✏️ Edit</button>
+          <button class="small btn ghost" data-act="del">🗑️ Delete</button>
+        </div>
+      </div>
+      ${m.content? `<div class="sep"></div><div><span class="muted">Content:</span> ${escapeHtml(m.content)}</div>` : ''}
+      ${m.dose? `<div><span class="muted">Dose:</span> ${escapeHtml(m.dose)}</div>` : ''}
+      ${m.use? `<div><span class="muted">Use:</span> ${escapeHtml(m.use)}</div>` : ''}
+      ${m.notes? `<div class="sep"></div><div class="muted">${escapeHtml(m.notes)}</div>` : ''}`
+    ;
+    wrap.querySelector('[data-act="edit"]').addEventListener('click', ()=> openMed(m));
+    wrap.querySelector('[data-act="del"]').addEventListener('click', ()=> deleteMed(m.id));
+    return wrap;
+  }
+
+  function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  // Add/Edit
+  function fillCatSelect(sel){ sel.innerHTML='';
+    const cats = state.categories.filter(c=>c.id!=='all');
+    if(!cats.length) sel.innerHTML = `<option value="">Uncategorized</option>`;
+    cats.forEach(c=>{ const o = document.createElement('option'); o.value=c.id; o.textContent=c.name; sel.appendChild(o); });
+  }
+
+  function openMed(m){
+    fillCatSelect(document.getElementById('medCat'));
+    document.getElementById('dlgTitle').textContent = m? 'Edit Medicine' : 'Add Medicine';
+    document.getElementById('medId').value = m? m.id : '';
+    document.getElementById('medName').value = m? m.name : '';
+    document.getElementById('medCat').value = m? (m.category||'') : '';
+    document.getElementById('medContent').value = m? (m.content||'') : '';
+    document.getElementById('medDose').value = m? (m.dose||'') : '';
+    document.getElementById('medUse').value = m? (m.use||'') : '';
+    document.getElementById('medNotes').value = m? (m.notes||'') : '';
+    medDialog.showModal();
+  }
+  function closeMed(){ medDialog.close(); }
+
+  document.getElementById('medForm').addEventListener('submit',(e)=>{
+    e.preventDefault();
+    const m = {
+      id: document.getElementById('medId').value || id(),
+      name: document.getElementById('medName').value.trim(),
+      category: document.getElementById('medCat').value,
+      content: document.getElementById('medContent').value.trim(),
+      dose: document.getElementById('medDose').value.trim(),
+      use: document.getElementById('medUse').value.trim(),
+      notes: document.getElementById('medNotes').value.trim()
+    };
+    if(!m.name){ alert('Name is required'); return; }
+    const idx = state.medicines.findIndex(x=>x.id===m.id);
+    if(idx>=0) state.medicines[idx]=m; else state.medicines.push(m);
+    save(state); render(); closeMed();
+  });
+
+  // Delete => move to trash
+  function deleteMed(id_){
+    const i = state.medicines.findIndex(x=>x.id===id_);
+    if(i<0) return;
+    const item = state.medicines.splice(i,1)[0];
+    item._deletedAt = Date.now();
+    state.trash.unshift(item);
+    save(state); render();
+    alert(`${item.name} moved to Trash. You can restore from Restore dialog.`);
+  }
+
+  // Restore dialog
+  function openRestore(){
+    const list = document.getElementById('trashList'); list.innerHTML='';
+    if(!state.trash.length) { list.innerHTML = '<div class="muted">Trash is empty.</div>'; }
+    state.trash.forEach(t=>{
+      const el = document.createElement('div'); el.className='trash-item';
+      el.innerHTML = `<div>${escapeHtml(t.name)} <div style="font-size:0.85rem;color:var(--muted)">${escapeHtml(t.use||'')}</div></div>
+        <div style="display:flex; gap:8px">
+          <button class="small btn ghost" data-act="del">Delete</button>
+          <button class="small btn" data-act="restore">Restore</button>
+        </div>`;
+      el.querySelector('[data-act="del"]').addEventListener('click', ()=>{
+        if(!confirm('Delete permanently?')) return;
+        state.trash = state.trash.filter(x=>x.id!==t.id); save(state); openRestore();
+      });
+      el.querySelector('[data-act="restore"]').addEventListener('click', ()=>{
+        state.trash = state.trash.filter(x=>x.id!==t.id); state.medicines.push(t); save(state); openRestore(); render();
+      });
+      list.appendChild(el);
+    });
+    restoreDialog.showModal();
+  }
+
+  function clearTrashConfirm(){ if(confirm('Are you sure? This will permanently delete all trashed items.')){ state.trash=[]; save(state); openRestore(); }}
+
+  // Categories management
+  function openCat(){ catDialog.showModal(); drawCatItems(); }
+  function drawCatItems(){
+    const container = document.getElementById('catItems'); container.innerHTML='';
+    state.categories.filter(c=>!c.locked && c.id!=='all').forEach(c=>{
+      const el = document.createElement('div'); el.className='card'; el.style.display='inline-flex'; el.style.padding='10px'; el.innerHTML = `<div style="min-width:160px">${escapeHtml(c.name)}</div><div style="display:flex;gap:8px"><button class="small btn ghost">✏️</button><button class="small btn ghost">🗑️</button></div>`;
+      el.querySelectorAll('button')[0].addEventListener('click', ()=>{ const nv = prompt('Rename category', c.name); if(nv && nv.trim()){ c.name=nv.trim(); save(state); drawCatItems(); render(); }});
+      el.querySelectorAll('button')[1].addEventListener('click', ()=>{ if(confirm('Delete category? Items will become Uncategorized.')){ state.medicines=state.medicines.map(m=> m.category===c.id? {...m, category:''} : m); state.categories=state.categories.filter(x=>x.id!==c.id); save(state); drawCatItems(); render(); }});
+      container.appendChild(el);
+    });
+  }
+
+  document.getElementById('catForm').addEventListener('submit',(e)=>{ e.preventDefault(); const name = document.getElementById('catInput').value.trim(); if(!name) return; state.categories.push({id:id(), name}); document.getElementById('catInput').value=''; save(state); drawCatItems(); render(); });
+
+  // UI wiring
+  document.getElementById('addMedBtn').addEventListener('click', ()=> openMed());
+  document.getElementById('catBtn').addEventListener('click', ()=> openCat());
+  document.getElementById('restoreBtn').addEventListener('click', ()=> openRestore());
+
+  document.getElementById('q').addEventListener('input', (e)=>{ filter.q = e.target.value; render(); });
+  document.getElementById('sort').addEventListener('change', (e)=>{ filter.sort = e.target.value; render(); });
+
+  // Keyboard shortcuts
+  window.addEventListener('keydown', (e)=>{
+    if(e.altKey && (e.key==='n' || e.key==='N')){ e.preventDefault(); openMed(); }
+    if(e.key==='Escape'){ medDialog.open && medDialog.close(); catDialog.open && catDialog.close(); restoreDialog.open && restoreDialog.close(); }
+  });
+
+  // init
+  save(state); render();
+  fillCatSelect(document.getElementById('medCat'));
   </script>
 </body>
 </html>
